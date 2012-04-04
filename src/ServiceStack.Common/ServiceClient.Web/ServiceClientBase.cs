@@ -6,6 +6,11 @@ using ServiceStack.Service;
 using ServiceStack.ServiceHost;
 using ServiceStack.Text;
 
+#if SILVERLIGHT
+using System.Threading;
+#endif
+
+
 namespace ServiceStack.ServiceClient.Web
 {
 
@@ -381,6 +386,40 @@ namespace ServiceStack.ServiceClient.Web
 	            HttpWebRequestFilter(client);
 	    }
 #else
+        public TResponse Send<TResponse>(object request)
+        {
+            var success = true;
+            var result = default(TResponse);
+            Exception exception = null;
+            using(var waitEvent = new ManualResetEvent(false))
+            {
+                SendAsync<TResponse>(request,
+                    (response) =>
+                    {
+                        success = true;
+                        result = response;
+                        waitEvent.Set();
+                    },
+                    (response, ex) =>
+                    {
+                        success = false;
+                        result = response;
+                        exception = ex;
+                        waitEvent.Set();
+                    });
+                waitEvent.WaitOne();                
+            }
+            Thread.MemoryBarrier();
+            if (success)
+            {
+                return result;
+            }
+            else
+            {
+                if (exception != null) throw exception;
+                return result;
+            }
+        }
 		private void SendRequest(string requestUri, object request, Action<WebRequest> callback)
 		{
 			var isHttpGet = HttpMethod != null && HttpMethod.ToUpper() == "GET";
